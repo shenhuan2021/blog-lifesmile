@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>LifeSmile</title>
+  
+  <subtitle>学无止境</subtitle>
+  <link href="/atom.xml" rel="self"/>
+  
+  <link href="http://yoursite.com/"/>
+  <updated>2020-11-05T03:10:31.000Z</updated>
+  <id>http://yoursite.com/</id>
+  
+  <author>
+    <name>Shawn Shen</name>
+    
+  </author>
+  
+  <generator uri="http://hexo.io/">Hexo</generator>
+  
+  <entry>
+    <title>SpringCloud源码详解_Zull源码深度剖析</title>
+    <link href="http://yoursite.com/2020/11/01/SpringCloud%E6%BA%90%E7%A0%81%E8%AF%A6%E8%A7%A3-Zull%E6%BA%90%E7%A0%81%E6%B7%B1%E5%BA%A6%E5%89%96%E6%9E%90/"/>
+    <id>http://yoursite.com/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/</id>
+    <published>2020-11-01T10:49:41.000Z</published>
+    <updated>2020-11-05T03:10:31.000Z</updated>
+    
+    <content type="html"><![CDATA[<h2 id="一、网关的作用"><a href="#一、网关的作用" class="headerlink" title="一、网关的作用"></a>一、网关的作用</h2><p>​    主要起到请求转发和统一功能的处理。要是没有网关，前端调后台接口的时候就必须知道后端服务的地址，然后自己做分发，要是服务成千上万个前端咋处理？新增下线故障咋搞？另外一个就是把服务公共的东西放到网关，比如鉴权，请求统计等。</p><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/image-20201101185853146.png" alt="image-20201101185853146"></p><h2 id="二、Zull的核心流程"><a href="#二、Zull的核心流程" class="headerlink" title="二、Zull的核心流程"></a>二、Zull的核心流程</h2><p>​    Zull简单的说就是一系列的Filter组成的。什么是Filter这个我就不讲了，自己查资料。</p><p>​    请求到网关-&gt;Pre Filter -&gt;Route Filter -&gt; Post Filter 返回结果。若其中报错就会到Error Filter。Route Filter会转到对应的服务，执行然后返回结果，再返回给前端。这里先感受下，有个大概的感觉，后面会详细讲这块。可以先看下最后的总结图。</p><h2 id="三、Zull项目的搭建及入门"><a href="#三、Zull项目的搭建及入门" class="headerlink" title="三、Zull项目的搭建及入门"></a>三、Zull项目的搭建及入门</h2><p>​    这个自行去查个资料，然后搭建一个Demo试试，这里就不讲，我这里主要讲源码。</p><h2 id="四、源码详细剖析"><a href="#四、源码详细剖析" class="headerlink" title="四、源码详细剖析"></a>四、源码详细剖析</h2><h3 id="4-1-源码入口"><a href="#4-1-源码入口" class="headerlink" title="4.1 源码入口"></a>4.1 源码入口</h3><p>​    我没在使用Zull的时候，就把pom.xml填加依赖，然后在application.yml中配置些路由，在启动类上加个注解@EnableZuulProxy，然后就能使用了。那么这个入口肯定就是@EnableZuulProxy。</p><p>​    <strong>补充：Zull里面有**</strong>@EnableZuulProxy、@EnableZuulServer两个启动注解。我们看作者写的注释，大概意思是：**</p><p>​        1. Server就是一个单纯的服务，里面啥都没有，需要你自己去写或配置。</p><p>​        2. Proxy就是里面自带一些过滤器，可以直接使用（平时肯定用这个）。</p><h3 id="4-2-研究一下-EnableZuulProxy"><a href="#4-2-研究一下-EnableZuulProxy" class="headerlink" title="4.2 研究一下@EnableZuulProxy"></a>4.2 研究一下@EnableZuulProxy</h3><p>​    进去发现什么都没有，不过看到一个<strong>@Import(ZuulProxyMarkerConfiguration.class)</strong>，点进去看一下，发下也什么都没有，不过注释上写了，Responsible for adding in a marker bean to trigger activation of ZuulProxyAutoConfiguration（触发<strong>ZuulProxyAutoConfiguration）</strong></p><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/image-20201101210345278.png" alt="image-20201101210345278"></p><h3 id="4-3-研究下ZuulProxyAutoConfiguration"><a href="#4-3-研究下ZuulProxyAutoConfiguration" class="headerlink" title="4.3 研究下ZuulProxyAutoConfiguration"></a>4.3 研究下<strong>ZuulProxyAutoConfiguration</strong></h3><p>​    ZuulProxyAutoConfiguration这个类里面都是写bean配置，但是没有发现什么特别的，然后我们再去看下他的父类ZuulServerAutoConfiguration，这面里的内容看起来就比较像样了，什么Filter、Locator、Servlet、初始化什么的，这里有个特别的就是zuulServlet，一般web项目多事Servlet，我们可以在这打个段点，待会启动来看（这里直接就说了，这就是入口）</p><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/image-20201101210456549.png" alt="image-20201101210456549"></p><h3 id="4-4-研究下ZuulServlet"><a href="#4-4-研究下ZuulServlet" class="headerlink" title="4.4 研究下ZuulServlet"></a>4.4 研究下ZuulServlet</h3><p>​    这里面很熟悉，init(),service()方法。初始化的时候搞个ZuulRunner，然后再server的时候使用ZuulRunner来执行各个过滤器。pre-&gt;rout-&gt;post，中途出错的话再支持error，其实大的流程就到这来结束了。下面我们来分析一下，里面的过滤器。</p><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/image-20201101210620895.png" alt="image-20201101210620895"></p><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/image-20201101210647156.png" alt="image-20201101210647156"></p><h3 id="4-5-看下Pre-Filter（preRoute-方法）"><a href="#4-5-看下Pre-Filter（preRoute-方法）" class="headerlink" title="4.5 看下Pre Filter（preRoute()方法）"></a>4.5 看下Pre Filter（preRoute()方法）</h3><p>其实里面就是去拿Filter为pre的所有过滤器，然后根据顺序执行</p><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/image-20201101211700501.png" alt="image-20201101211700501"></p><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/image-20201101211754008.png" alt="image-20201101211754008"></p><p>所有的Pre过滤器及顺序入下，</p><ul><li>-3：ServletDetectionFilter</li><li>-2：Servlet30WrapperFilter</li><li>-1：FromBodyWrapperFilter</li><li>1：DebugFilter</li><li>5：PreDecorationFilter</li></ul><p>我们可以去依次看上面的Pre过滤器，其实都没啥类容，最核心多的就是PreDecorationFilter，简单看下代码，就是去读我们配置带application.yml中的配置，然后进行匹配，换成配置后的路径。本身没有什么技术难度。到此Pre就执行完了。下面看下Routing Filter。</p><h3 id="4-6-Routing-Filter"><a href="#4-6-Routing-Filter" class="headerlink" title="4.6 Routing Filter"></a>4.6 Routing Filter</h3><ul><li><p>10：RibbonRoutingFilter-》将请求转发到对应的服务。</p><p>​    我们看到这里就是先封装一个RibbonCommandContext然后再转发，调用的是forward。这里我们不去看细节，看到Ribbon和Command其实这是跟Ribbon和Hystrix相关，这里我们就简单的理解为转发到对应多的服务，到时候讲完Ribbon和Hystrix在回来看。简单的理解就是，他去注册中心找到对应的服务列表，然后选择一个服务，包装成Hystrix的Command通过Http的方式调用接口执行。</p></li></ul><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/shawn/IdeaProjects/hexo-lifesmile/source/_posts/SpringCloud%E6%BA%90%E7%A0%81%E8%AF%A6%E8%A7%A3-Zull%E6%BA%90%E7%A0%81%E6%B7%B1%E5%BA%A6%E5%89%96%E6%9E%90/image-20201101212753545.png" alt="image-20201101212753545"></p><ul><li><p>100：SimpleHostRoutingFilter-》将请求转发到具体的url地址</p><p>​    这就是转发到对应的url上，其实很少用，因为我们大部分都是跟注册中心继承的，里面就是对参数啊，url这些进行了处理，然后调用对应的url        </p></li><li><p>500：SendForwardFilter-》将请求转发到zuul网关服务自己的一个接口上去，这个没什么好说的。就是转发到自己的一个接口上</p></li></ul><h3 id="4-7-Post-Filter-返回页面"><a href="#4-7-Post-Filter-返回页面" class="headerlink" title="4.7 Post Filter 返回页面"></a>4.7 Post Filter 返回页面</h3><ul><li><p>1000：SendResponseFilter</p><p>看方法就是，添加了一个返回头，然后再调用OutputStream outStream = servletResponse.getOutputStream();返回到前台，这其实没什么的。</p><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/image-20201101214235592.png" alt="image-20201101214235592"></p><h3 id="4-8-Error-Filter错误过滤器"><a href="#4-8-Error-Filter错误过滤器" class="headerlink" title="4.8 Error Filter错误过滤器"></a>4.8 Error Filter错误过滤器</h3><p>​    SendErrorFilter：之前的pre阶段、route阶段、post阶段，任何一个阶段抛出了异常，都会执行SendErrorFilter</p><p>​    我们可以自己写一个controller，专门来处理zuul的所有异常报错，这样的话就可以实现统一的异常处理，默认情况下会将异常信息输出到浏览器中去，这样体验不是特别好。</p><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/image-20201101214559324.png" alt="image-20201101214559324"></p></li></ul><h2 id="五、总结"><a href="#五、总结" class="headerlink" title="五、总结"></a>五、总结</h2><p>​    其实Zull的源码还是很简单的，大概就是几个Filter的处理，里面涉及的Ribbon和Hystrix后面看完了就知道，他是如何进行限流降级的，他其实就是对Hystrix的使用。下面来一张总结的图。</p><p><img src="/2020/11/01/SpringCloud源码详解-Zull源码深度剖析/image-20201101224841518.png" alt="image-20201101224841518"></p>]]></content>
+    
+    <summary type="html">
+    
+      
+      
+        &lt;h2 id=&quot;一、网关的作用&quot;&gt;&lt;a href=&quot;#一、网关的作用&quot; class=&quot;headerlink&quot; title=&quot;一、网关的作用&quot;&gt;&lt;/a&gt;一、网关的作用&lt;/h2&gt;&lt;p&gt;​    主要起到请求转发和统一功能的处理。要是没有网关，前端调后台接口的时候就必须知道后端服务的地
+      
+    
+    </summary>
+    
+      <category term="SpringCloud源码" scheme="http://yoursite.com/categories/SpringCloud%E6%BA%90%E7%A0%81/"/>
+    
+    
+      <category term="源码解析" scheme="http://yoursite.com/tags/%E6%BA%90%E7%A0%81%E8%A7%A3%E6%9E%90/"/>
+    
+      <category term="SpringCloud源码" scheme="http://yoursite.com/tags/SpringCloud%E6%BA%90%E7%A0%81/"/>
+    
+  </entry>
+  
+  <entry>
+    <title>MySQL_01_数据更新的流程？底层如何执行？</title>
+    <link href="http://yoursite.com/2020/08/09/MySQL-01-%E6%95%B0%E6%8D%AE%E6%9B%B4%E6%96%B0%E7%9A%84%E6%B5%81%E7%A8%8B%EF%BC%9F%E5%BA%95%E5%B1%82%E5%A6%82%E4%BD%95%E6%89%A7%E8%A1%8C%EF%BC%9F/"/>
+    <id>http://yoursite.com/2020/08/09/MySQL-01-数据更新的流程？底层如何执行？/</id>
+    <published>2020-08-09T13:55:35.000Z</published>
+    <updated>2020-08-10T03:10:08.000Z</updated>
+    
+    <content type="html"><![CDATA[<h2 id="1、MySQL整体架构"><a href="#1、MySQL整体架构" class="headerlink" title="1、MySQL整体架构"></a>1、MySQL整体架构</h2><p><img src="/2020/08/09/MySQL-01-数据更新的流程？底层如何执行？/image-20200809215734752.png" alt="image-20200809215734752"></p><p>在执行到存储引擎这一步骤时，会根据具体的存储引擎，去磁盘获取数据。</p><h2 id="2、InnoDB是如何执行Update语句？"><a href="#2、InnoDB是如何执行Update语句？" class="headerlink" title="2、InnoDB是如何执行Update语句？"></a>2、InnoDB是如何执行Update语句？</h2><p>下面只是讲解整个大流程，未涉及细节，细节会在后续陆续分享</p><p><img src="/2020/08/09/MySQL-01-数据更新的流程？底层如何执行？/image-20200809225500240.png" alt="image-20200809225500240"></p><p>比如我们现在要执行 update users set name=’小张’ where id=1</p><ol><li><p>到存盘上找到需要更新的数据，比如数据为 id=1，name=小李，将数据放到缓存池中（Buffer Pool）</p></li><li><p>将查询出来的值（ id=1，name=小李）写到undo日志文件中，目的是后期数据回滚，先将原来值记录下来，回滚的时候就从该日志中取出来，以后会相信分享undo日志详细内容</p></li><li><p>更新Buffer Pool中的值，改为name由小李-》小张</p></li><li><p>写到将更新操作记录一下，写到Redo log buffer（内存）中</p></li><li><p>Redo log buffer中的数据持久化到磁盘Redo log文件中，这个时候就算是更新成功了，为什么要用Redo log，以及带来的好处，后续会分享，现在主要了解到整体的流程就行。</p><p>这里有个参数可以设置，redo log持久化策略：innodb_flush_log_at_trx_commit，可配置为：0，1，2</p><ul><li><p>配置为0：提交事务的时候，不会持久化到redo日志文件中，这个时候宕机，会造成数据丢失</p></li><li><p>配置为1：提交事务redo log从内存刷入到磁盘文件里去，只要事务提交成功，那么redo log就必然在磁盘里了</p></li><li><p>配置为2：提交事务的时候，把redo日志写os cache缓存，而不是直接进入磁盘文件，可能1秒后再持久化到磁盘，和配置为0类似，会造成数据丢失。</p></li></ul></li><li><p>写入binlog日志，binlog实际上是对哪个数据做了什么修改，和Redo log buffer类似，也是有刷盘策略：sync_binlog和innodb_flush_log_at_trx_commit类似</p></li><li><p>将binlog的记录写入到Redo日志中，为什么要做个标记呢？</p><p>用来保持redo log日志与binlog日志一致的。必须是在redo log中写入最终的事务commit标记了，然后此时事务提交成功，而且redo log里有本次更新对应的日志，binlog里也有本次更新对应的日志 ，redo log和binlog完全是一致的，这个时候我们才认为是提交成功的</p></li><li><p>异步IO线程将修改后的数据刷到磁盘文件中</p></li></ol><h2 id="3、讨论下步骤2可能出现的问题"><a href="#3、讨论下步骤2可能出现的问题" class="headerlink" title="3、讨论下步骤2可能出现的问题"></a>3、讨论下步骤2可能出现的问题</h2><p>首先，步骤1，2，3，4中任何一步出问题，都不会有什么影响，因为所有的数据修改都是基于内存的，还没做持久化，数据库数据还是修改前的数据。</p><p>可能会出现问题是，写进redo log后MySQL宕机，这个时候，我们已经默认该数据修改成功，但是实际上，知识记录到redo log，并没有改到数据库里面正式的数据。MySQL的机制是，当MySQL宕机重启时，会去redo log中拿到之前放进的更新数据，再放到buffer pool中，这样又可以继续执行下面的步骤了，将更新后的数据刷到磁盘，不会造成数据不一致。</p>]]></content>
+    
+    <summary type="html">
+    
+      
+      
+        &lt;h2 id=&quot;1、MySQL整体架构&quot;&gt;&lt;a href=&quot;#1、MySQL整体架构&quot; class=&quot;headerlink&quot; title=&quot;1、MySQL整体架构&quot;&gt;&lt;/a&gt;1、MySQL整体架构&lt;/h2&gt;&lt;p&gt;&lt;img src=&quot;/2020/08/09/MySQL-01-数据更
+      
+    
+    </summary>
+    
+      <category term="MySQL" scheme="http://yoursite.com/categories/MySQL/"/>
+    
+    
+      <category term="MySQL" scheme="http://yoursite.com/tags/MySQL/"/>
+    
+  </entry>
+  
+  <entry>
+    <title>网页上的文字无法复制？教你如何破除网页限制</title>
+    <link href="http://yoursite.com/2020/08/08/%E7%BD%91%E9%A1%B5%E4%B8%8A%E7%9A%84%E6%96%87%E5%AD%97%E6%97%A0%E6%B3%95%E5%A4%8D%E5%88%B6%EF%BC%9F%E6%95%99%E4%BD%A0%E5%A6%82%E4%BD%95%E7%A0%B4%E9%99%A4%E7%BD%91%E9%A1%B5%E9%99%90%E5%88%B6/"/>
+    <id>http://yoursite.com/2020/08/08/网页上的文字无法复制？教你如何破除网页限制/</id>
+    <published>2020-08-08T05:53:47.000Z</published>
+    <updated>2020-08-08T06:26:03.000Z</updated>
+    
+    <content type="html"><![CDATA[<h2 id="使用工具"><a href="#使用工具" class="headerlink" title="使用工具"></a>使用工具</h2><p>Chrome 浏览器 +  Simple Allow Copy（插件）</p><p>Simple Allow Copy：链接: <a href="https://pan.baidu.com/s/1JK6C3uofdKfFQi3-UOdj7Q" target="_blank" rel="noopener">https://pan.baidu.com/s/1JK6C3uofdKfFQi3-UOdj7Q</a>  密码: m7id</p><h2 id="插件安装方法"><a href="#插件安装方法" class="headerlink" title="插件安装方法"></a>插件安装方法</h2><ol><li><p>下载Chrome 浏览器并安装</p></li><li><p>下载Simple Allow Copy（插件）</p></li><li><p>在浏览器中，输入：chrome://extensions/ 回车，打开应用管理器，可以看到之前安装的其他应用</p></li><li><p>拖放刚刚的Simple Allow Copy文件到界面里，松开鼠标，会弹出安装提示，点击确定安装就可以了</p></li><li><p>点击又上角按钮，亮起来了表示已经开启，F5刷新网页</p><p><img src="/2020/08/08/网页上的文字无法复制？教你如何破除网页限制/image-20200808141743980.png" alt="image-20200808141743980"></p></li><li><p>开心的使用吧</p></li></ol>]]></content>
+    
+    <summary type="html">
+    
+      
+      
+        &lt;h2 id=&quot;使用工具&quot;&gt;&lt;a href=&quot;#使用工具&quot; class=&quot;headerlink&quot; title=&quot;使用工具&quot;&gt;&lt;/a&gt;使用工具&lt;/h2&gt;&lt;p&gt;Chrome 浏览器 +  Simple Allow Copy（插件）&lt;/p&gt;
+&lt;p&gt;Simple Allow Copy：链
+      
+    
+    </summary>
+    
+      <category term="生活小技巧" scheme="http://yoursite.com/categories/%E7%94%9F%E6%B4%BB%E5%B0%8F%E6%8A%80%E5%B7%A7/"/>
+    
+    
+      <category term="破解网页限制" scheme="http://yoursite.com/tags/%E7%A0%B4%E8%A7%A3%E7%BD%91%E9%A1%B5%E9%99%90%E5%88%B6/"/>
+    
+  </entry>
+  
+  <entry>
+    <title>分布式事务-看这一篇就够了（理论+代码实战）</title>
+    <link href="http://yoursite.com/2020/06/29/%E5%88%86%E5%B8%83%E5%BC%8F%E4%BA%8B%E5%8A%A1-%E7%9C%8B%E8%BF%99%E4%B8%80%E7%AF%87%E5%B0%B1%E5%A4%9F%E4%BA%86%EF%BC%88%E7%90%86%E8%AE%BA-%E4%BB%A3%E7%A0%81%E5%AE%9E%E6%88%98%EF%BC%89/"/>
+    <id>http://yoursite.com/2020/06/29/分布式事务-看这一篇就够了（理论-代码实战）/</id>
+    <published>2020-06-29T04:12:28.000Z</published>
+    <updated>2020-06-29T04:17:55.000Z</updated>
+    
+    <content type="html"><![CDATA[<p>代码实战地址：<a href="https://github.com/shenhuan1006/spring-cloud-rocketmq-transaction" target="_blank" rel="noopener">https://github.com/shenhuan1006/spring-cloud-rocketmq-transaction</a></p><h2 id="基础理论"><a href="#基础理论" class="headerlink" title="基础理论"></a>基础理论</h2><h3 id="事务（ACID）"><a href="#事务（ACID）" class="headerlink" title="事务（ACID）"></a>事务（ACID）</h3><h3 id="分布式事务"><a href="#分布式事务" class="headerlink" title="分布式事务"></a>分布式事务</h3><p>简单的说，就是一次大的操作由不同的小操作组成，这些小的操作分布在不同的服务器上，且属于不同的应用，分布式事务需要保证这些小操作要么全部成功，要么全部失败。本质上来说，分布式事务就是为了保证不同数据库的数据一致性。</p><h3 id="CAP-原则"><a href="#CAP-原则" class="headerlink" title="CAP 原则"></a>CAP 原则</h3><p>CAP 原则又称 CAP 定理，指的是在一个分布式系统中， Consistency（一致性）、 Availability（可用性）、Partition tolerance（分区容错性），三者不可得兼。</p><p>一致性（C）：在分布式系统中的所有数据备份，在同一时刻是否同样的值。（等同于所有节点访问同一份最新的数据副本）</p><p>可用性（A）：在集群中一部分节点故障后，集群整体是否还能响应客户端的读写请求。（对数据更新具备高可用性）</p><p>分区容错性（P）：以实际效果而言，分区相当于对通信的时限要求。系统如果不能在时限内达成数据一致性，就意味着发生了分区的情况，必须就当前操作在 C 和 A 之间做出选择。</p><h3 id="BASE-理论"><a href="#BASE-理论" class="headerlink" title="BASE 理论"></a>BASE 理论</h3><p>BASE 理论指的是基本可用 Basically Available，软状态 Soft State，最终一致性 Eventual Consistency，核心思想是即便无法做到强一致性，但应该采用适合的方式保证最终一致性。</p><p>BA：Basically Available 基本可用，分布式系统在出现故障的时候，允许损失部分可用性，即保证核心可用。<br>S：Soft State 软状态，允许系统存在中间状态，而该中间状态不会影响系统整体可用性。<br>E：Consistency 最终一致性，系统中的所有数据副本经过一定时间后，最终能够达到一致的状态。<br>BASE 理论本质上是对 CAP 理论的延伸，是对 CAP 中 AP 方案的一个补充。</p><h2 id="为什么要使用分布式事务"><a href="#为什么要使用分布式事务" class="headerlink" title="为什么要使用分布式事务"></a>为什么要使用分布式事务</h2><p><img src="/2020/06/29/分布式事务-看这一篇就够了（理论-代码实战）/image-20200624150451721.png" alt="image-20200624150451721"></p><p>现在有一个情况，当用户创建一个订单，库存已经扣减成功（锁成功），但是讲订单插入数据库时报错。这个时候扣减的库存应该回滚。</p><p>目前的实现方式是无法将扣减的库存回滚，所以引入分布式事务。</p><h2 id="分布式事务解决方案"><a href="#分布式事务解决方案" class="headerlink" title="分布式事务解决方案"></a>分布式事务解决方案</h2><h3 id="两阶段提交-XA"><a href="#两阶段提交-XA" class="headerlink" title="两阶段提交/XA"></a>两阶段提交/XA</h3><p>技术栈：SpringBoot+jta+atpmikos可以实现</p><p><img src="/2020/06/29/分布式事务-看这一篇就够了（理论-代码实战）/image-20200624151950834.png" alt="image-20200624151950834"></p><p>这个举个例子，比如说咱们团建，然后问大家，下周五晚上我们一起吃烧烤，大家去不？</p><p>第一个阶段，李哥（事务管理器）下周六我们去烧烤，去吗？这个时候李哥开始等待每个人的回答，如果所有人都说ok，那么就可以决定一起去这次tb。如果这个阶段里，任何一个人回答说，我有事不去了，那么tb主席就会取消这次活动。如果都同意就进行第二阶段</p><p> 第二个阶段，那下周六大家就一起去烧烤了</p><p> 所以这个就是所谓的XA事务，两阶段提交，有一个事务管理器的概念，负责协调多个数据库（资源管理器）的事务，事务管理器先问问各个数据库你准备好了吗？如果每个数据库都回复ok，那么就正式提交事务，在各个数据库上执行操作；如果任何一个数据库回答不ok，那么就回滚事务。</p><p>存在的问题</p><ul><li>同步阻塞：当参与事务者存在占用公共资源的情况，其中一个占用了资源，其他事务参与者就只能阻塞等待资源释放，处于阻塞状态。</li><li>单点故障：一旦事务管理器出现故障，整个系统不可用</li><li>数据不一致：在阶段二，如果事务管理器只发送了部分 commit 消息，此时网络发生异常，那么只有部分参与者接收到 commit 消息，也就是说只有部分参与者提交了事务，使得系统数据不一致。</li><li>不确定性：当协事务管理器发送 commit 之后，并且此时只有一个参与者收到了 commit，那么当该参与者与事务管理器同时宕机之后，重新选举的事务管理器无法确定该条消息是否提交成功。</li></ul><h3 id="TCC方案："><a href="#TCC方案：" class="headerlink" title="TCC方案："></a>TCC方案：</h3><p><strong>Try、Confirm、Cancel</strong></p><p><strong>TCC 对比 XA解决了其几个缺点</strong></p><ul><li>解决了协调者单点，由主业务方发起并完成这个业务活动。业务活动管理器也变成多点，引入集群。</li><li>同步阻塞：引入超时，超时后进行补偿，并且不会锁定整个资源，将资源转换为业务逻辑形式，粒度变小。</li><li>数据一致性，有了补偿机制之后，由业务活动管理器控制一致性</li></ul><p><strong>三个阶段：</strong></p><p> Try阶段：这个阶段说的是对各个服务的资源做检测以及对资源进行锁定或者预留</p><p>Confirm阶段：这个阶段说的是在各个服务中执行实际的操作</p><p>Cancel阶段：如果任何一个服务的业务方法执行出错，那么这里就需要进行补偿，就是执行已经执行成功的业务逻辑的回滚操作</p><p><img src="/2020/06/29/分布式事务-看这一篇就够了（理论-代码实战）/image-20200624154630456.png" alt="image-20200624154630456"></p><p>这种方案使用少。因为这个事务回滚实际上是严重依赖于你自己写代码来回滚和补偿了，会造成补偿代码巨大。</p><p> 比如说我们，一般来说跟钱相关的，跟钱打交道的，支付、交易相关的场景，我们会用TCC，严格严格保证分布式事务要么全部成功，要么全部自动回滚，严格保证资金的正确性，在资金上出现问题</p><h3 id="本地消息表"><a href="#本地消息表" class="headerlink" title="本地消息表"></a>本地消息表</h3><p>国外的ebay搞出来的这么一套思想</p><p><img src="/2020/06/29/分布式事务-看这一篇就够了（理论-代码实战）/image-20200624160423075.png" alt="image-20200624160423075"></p><p>这个大概意思是这样的</p><ol><li><p>A系统在自己本地一个事务里操作同时，插入一条数据到消息表</p></li><li><p>接着A系统将这个消息发送到MQ中去</p></li><li><p>B系统接收到消息之后，在一个事务里，往自己本地消息表里插入一条数据，同时执行其他的业务操作，如果这个消息已经被处理过了，那么此时这个事务会回滚，这样保证不会重复处理消息</p></li><li><p>B系统执行成功之后，就会更新自己本地消息表的状态以及A系统消息表的状态</p></li><li><p>如果B系统处理失败了，那么就不会更新消息表状态，那么此时A系统会定时扫描自己的消息表，如果有没处理的消息，会再次发送到MQ中去，让B再次处理</p></li><li><p>这个方案保证了最终一致性，哪怕B事务失败了，但是A会不断重发消息，直到B那边成功为止</p><p>这个方案说实话最大的问题就在于严重依赖于数据库的消息表来管理事务，这个会导致如果是高并发场景咋办呢？咋扩展呢？所以一般确实很少用</p></li></ol><h3 id="最大努力通知方案"><a href="#最大努力通知方案" class="headerlink" title="最大努力通知方案"></a>最大努力通知方案</h3><ol><li>系统A本地事务执行完之后，发送个消息到MQ</li><li>这里会有个专门消费MQ的最大努力通知服务，这个服务会消费MQ然后写入数据库中记录下来，或者是放入个内存队列也可以，接着调用系统B的接口</li><li>要是系统B执行成功就ok了；要是系统B执行失败了，那么最大努力通知服务就定时尝试重新调用系统B，反复N次，最后还是不行就放弃</li></ol><h3 id="可靠消息最终一致性方案（重点）"><a href="#可靠消息最终一致性方案（重点）" class="headerlink" title="可靠消息最终一致性方案（重点）"></a>可靠消息最终一致性方案（重点）</h3><p><img src="/2020/06/29/分布式事务-看这一篇就够了（理论-代码实战）/image-20200624175658219.png" alt="image-20200624175658219"></p><ol><li>A系统先发送一个prepared消息到mq，如果这个prepared消息发送失败那么就直接取消操作别执行了</li><li>如果这个消息发送成功过了，那么接着执行本地事务，如果成功就告诉mq发送确认消息，如果失败就告诉mq回滚消息</li><li>如果发送了确认消息，那么此时B系统会接收到确认消息，然后执行本地的事务</li><li>mq会自动定时轮询所有prepared消息回调你的接口，问你，这个消息是不是本地事务处理失败了，所有没发送确认消息？那是继续重试还是回滚？一般来说这里你就可以查下数据库看之前本地事务是否执行，如果回滚了，那么这里也回滚吧。这个就是避免可能本地事务执行成功了，别确认消息发送失败了。</li><li>这个方案里，要是系统B的事务失败了咋办？重试咯，自动不断重试直到成功，如果实在是不行，要么就是针对重要的资金类业务进行回滚，比如B系统本地回滚后，想办法通知系统A也回滚；或者是发送报警由人工来手工回滚和补偿</li></ol><p>该方案与本地消息最大的不同是去掉了本地消息表，其次本地消息表依赖消息表重试写入 mq 这一步由本方案中的轮询 prepare 消息状态来重试或者回滚该消息替代。其实现条件与余容错方案基本一致。目前市面上实现该方案的只有阿里的 RocketMq。</p>]]></content>
+    
+    <summary type="html">
+    
+      
+      
+        &lt;p&gt;代码实战地址：&lt;a href=&quot;https://github.com/shenhuan1006/spring-cloud-rocketmq-transaction&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;&gt;https://github.com/shen
+      
+    
+    </summary>
+    
+    
+  </entry>
+  
+  <entry>
+    <title>SSO单点登录原理及代码实现</title>
+    <link href="http://yoursite.com/2019/08/04/SSO%E5%8D%95%E7%82%B9%E7%99%BB%E5%BD%95%E5%8E%9F%E7%90%86%E5%8F%8A%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0/"/>
+    <id>http://yoursite.com/2019/08/04/SSO单点登录原理及代码实现/</id>
+    <published>2019-08-04T09:03:10.000Z</published>
+    <updated>2020-06-28T14:28:01.000Z</updated>
+    
+    <content type="html"><![CDATA[<p>定期将学习内容整理笔记,可以添加我微信(ID:ad769622293),我将组建一个微信群,然后大家一起监督学习,相互讨论,共同成长。</p><p>最近在公司做了一个单点登录的小项目，然后又重温了一下单点登录。</p><h1 id="1-什么是单点登录"><a href="#1-什么是单点登录" class="headerlink" title="1.什么是单点登录"></a>1.什么是单点登录</h1><p>单点登录全称Single Sign On（以下简称SSO），是指在多系统应用群中登录一个系统，便可在其他所有系统中得到授权而无需再次登录，包括单点登录与单点注销两部分</p><h1 id="2-登录模块"><a href="#2-登录模块" class="headerlink" title="2.登录模块"></a>2.登录模块</h1><p>相比于单系统登录，sso需要一个独立的认证中心，只有认证中心能接受用户的用户名密码等安全信息，其他系统不提供登录入口，只接受认证中心的间接授权。间接授权通过令牌实现，sso认证中心验证用户的用户名密码没问题，创建授权令牌，在接下来的跳转过程中，授权令牌作为参数发送给各个子系统，子系统拿到令牌，即得到了授权，可以借此创建局部会话，局部会话登录方式与单系统的登录方式相同。这个过程，也就是单点登录的原理，用下图说明<br><img src="/2019/08/04/SSO单点登录原理及代码实现/SSO_1.jpg" alt="SSO_1"><br>下面对上图简要描述</p><ol><li>用户访问系统1的受保护资源，系统1发现用户未登录，跳转至sso认证中心，并将自己的地址作为参数</li><li>sso认证中心发现用户未登录，将用户引导至登录页面</li><li>用户输入用户名密码提交登录申请</li><li>sso认证中心校验用户信息，创建用户与sso认证中心之间的会话，称为全局会话，同时创建授权令牌</li><li>sso认证中心带着令牌跳转会最初的请求地址（系统1）</li><li>系统1拿到令牌，去sso认证中心校验令牌是否有效</li><li>sso认证中心校验令牌，返回有效，注册系统1</li><li>系统1使用该令牌创建与用户的会话，称为局部会话，返回受保护资源</li><li>用户访问系统2的受保护资源</li><li>系统2发现用户未登录，跳转至sso认证中心，并将自己的地址作为参数</li><li>so认证中心发现用户已登录，跳转回系统2的地址，并附上令牌</li><li>系统2拿到令牌，去sso认证中心校验令牌是否有效</li><li>so认证中心校验令牌，返回有效，注册系统2</li><li>系统2使用该令牌创建与用户的局部会话，返回受保护资源<br>用户登录成功之后，会与sso认证中心及各个子系统建立会话，用户与sso认证中心建立的会话称为全局会话，用户与各个子系统建立的会话称为局部会话，局部会话建立之后，用户访问子系统受保护资源将不再通过sso认证中心，全局会话与局部会话有如下约束关系</li><li>局部会话存在，全局会话一定存在</li><li>全局会话存在，局部会话不一定存在</li><li>全局会话销毁，局部会话必须销毁<h1 id="3-注销模块"><a href="#3-注销模块" class="headerlink" title="3.注销模块"></a>3.注销模块</h1></li><li>用户向系统1发起注销请求</li><li>系统1根据用户与系统1建立的会话id拿到令牌，向sso认证中心发起注销请求</li><li>sso认证中心校验令牌有效，销毁全局会话，同时取出所有用此令牌注册的系统地址</li><li>sso认证中心向所有注册系统发起注销请求</li><li>各注册系统接收sso认证中心的注销请求，销毁局部会话</li><li>sso认证中心引导用户至登录页面<h1 id="4-代码实现"><a href="#4-代码实现" class="headerlink" title="4.代码实现"></a>4.代码实现</h1>只是简要介绍下基于java的实现过程，不提供完整源码，明白了原理，我相信你们可以自己实现。sso采用客户端/服务端架构，我们先看sso-client与sso-server要实现的功能（下面：sso认证中心=sso-server）<h2 id="4-1sso-client"><a href="#4-1sso-client" class="headerlink" title="4.1sso-client"></a>4.1sso-client</h2></li><li>系统未登录用户请求，跳转至sso认证中心</li><li>存储sso认证中心发送的令牌</li><li>o-server通信，校验令牌的有效性</li><li>部会话</li><li>户注销请求，向sso认证中心发送注销请求</li><li>so认证中心发出的注销请求，销毁局部会话<h2 id="4-2sso-server"><a href="#4-2sso-server" class="headerlink" title="4.2sso-server"></a>4.2sso-server</h2></li><li>验证用户的登录信息</li><li>创建全局会话</li><li>创建授权令牌</li><li>与sso-client通信发送令牌</li><li>校验sso-client令牌有效性</li><li>系统注册</li><li>接收sso-client注销请求，注销所有会话</li></ol><p>这里分享2个SSO项目的代码demo（下载：<a href="https://pan.baidu.com/s/1rXLR4f8F_H8SaUGmpgyCmg" target="_blank" rel="noopener">百度网盘</a>）</p><p>参考文章：<br><a href="https://www.cnblogs.com/ywlaker/p/6113927.html" target="_blank" rel="noopener">https://www.cnblogs.com/ywlaker/p/6113927.html</a></p>]]></content>
+    
+    <summary type="html">
+    
+      
+      
+        &lt;p&gt;定期将学习内容整理笔记,可以添加我微信(ID:ad769622293),我将组建一个微信群,然后大家一起监督学习,相互讨论,共同成长。&lt;/p&gt;
+&lt;p&gt;最近在公司做了一个单点登录的小项目，然后又重温了一下单点登录。&lt;/p&gt;
+&lt;h1 id=&quot;1-什么是单点登录&quot;&gt;&lt;a href
+      
+    
+    </summary>
+    
+      <category term="SSO" scheme="http://yoursite.com/categories/SSO/"/>
+    
+    
+      <category term="SSO" scheme="http://yoursite.com/tags/SSO/"/>
+    
+  </entry>
+  
+  <entry>
+    <title>Spring源码搭建</title>
+    <link href="http://yoursite.com/2019/07/31/Spring%E6%BA%90%E7%A0%81%E6%90%AD%E5%BB%BA/"/>
+    <id>http://yoursite.com/2019/07/31/Spring源码搭建/</id>
+    <published>2019-07-31T05:17:08.000Z</published>
+    <updated>2020-06-28T14:28:01.000Z</updated>
+    
+    <content type="html"><![CDATA[<p>定期将学习内容整理笔记,进行分享,若你也准备学习或者正在学习可以添加我微信(ID:ad769622293),我将组建一个微信群,然后大家一起监督学习,相互讨论,相互学习.</p><h2 id="1-获取源码"><a href="#1-获取源码" class="headerlink" title="1.获取源码"></a>1.获取源码</h2><h3 id="1-1方式1-Github下载-可能出现编译报错"><a href="#1-1方式1-Github下载-可能出现编译报错" class="headerlink" title="1.1方式1:Github下载(可能出现编译报错)"></a>1.1方式1:Github下载(可能出现编译报错)</h3><p>搜素Spring,找到spring-framework,选择5.x分支.或直接点击<a href="https://github.com/spring-projects/spring-framework/tree/5.0.x" target="_blank" rel="noopener">GitHub-spring5.x</a></p><h3 id="1-2方式2-百度网盘-编译成功"><a href="#1-2方式2-百度网盘-编译成功" class="headerlink" title="1.2方式2:百度网盘(编译成功)"></a>1.2方式2:百度网盘(编译成功)</h3><p>我以及下载好了,直接访问百度网盘<a href="https://pan.baidu.com/s/1cXhha2aOaO3hmnk-QyEc9A" target="_blank" rel="noopener">百度网盘-spring5.x</a> 提取码：8leq.,这个是我自己在本地IDEA上编译通过,可以直接导入IDEA使用.</p><p>如果你选择方式二,直接导入Idea,应该就能直接编译成功.下面会整理一些可能出现的编译错误.要是没有涉及到的可以留言.</p><h2 id="2-异常解决"><a href="#2-异常解决" class="headerlink" title="2.异常解决"></a>2.异常解决</h2><h3 id="2-1cglib和objenesis的编译错误解决"><a href="#2-1cglib和objenesis的编译错误解决" class="headerlink" title="2.1cglib和objenesis的编译错误解决"></a>2.1cglib和objenesis的编译错误解决</h3><p><strong>报错位置:</strong> SpringObjenesis.java<br><strong>报错原因:</strong> 为了避免第三方class的冲突，Spring把最新的cglib和objenesis给重新打包（repack ) 了， 它并没有在源码里提供这部分的代码，而是直接将其放在jar包当中，这也就导致了我们拉取 代码后出现编译错误。<br><strong>解决方案:</strong>在spring-core,手动引入cglib和objenesis包</p><h3 id="2-2AspecU编译问题解决"><a href="#2-2AspecU编译问题解决" class="headerlink" title="2.2AspecU编译问题解决"></a>2.2AspecU编译问题解决</h3><p><strong>报错位置:</strong>AspectCachingConfiguration.java 类找不到<br><strong>解决方案:</strong></p><ol><li>下载Aspect」的最新稳定版本</li><li>安装Aspect</li></ol><p>若还有什么问题,可以留言评论…</p><p>更多精彩内容请关注</p><ul><li><p>微信公众号:LifeSmile</p></li><li><p>个人网站:<a href="www.lifesmile.cn">www.lifesmile.cn</a></p></li></ul>]]></content>
+    
+    <summary type="html">
+    
+      
+      
+        &lt;p&gt;定期将学习内容整理笔记,进行分享,若你也准备学习或者正在学习可以添加我微信(ID:ad769622293),我将组建一个微信群,然后大家一起监督学习,相互讨论,相互学习.&lt;/p&gt;
+&lt;h2 id=&quot;1-获取源码&quot;&gt;&lt;a href=&quot;#1-获取源码&quot; class=&quot;header
+      
+    
+    </summary>
+    
+      <category term="Spring源码解析" scheme="http://yoursite.com/categories/Spring%E6%BA%90%E7%A0%81%E8%A7%A3%E6%9E%90/"/>
+    
+    
+      <category term="Spring" scheme="http://yoursite.com/tags/Spring/"/>
+    
+      <category term="源码解析" scheme="http://yoursite.com/tags/%E6%BA%90%E7%A0%81%E8%A7%A3%E6%9E%90/"/>
+    
+  </entry>
+  
+</feed>
